@@ -27,6 +27,7 @@ jobs:
         with:
           role-to-assume: GitHubActionsRole
           aws-region: ap-south-2
+          role-session-name: GitHubActions-Terraform
 
       - name: Terraform Init
         run: terraform init
