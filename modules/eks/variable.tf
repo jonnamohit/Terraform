@@ -12,3 +12,8 @@ variable "instance_types" {
   type        = list(string)
   default     = ["t3.micro"]
 }
+
+variable "project_name" {
+  description = "Project name prefix"
+  type        = string
+}

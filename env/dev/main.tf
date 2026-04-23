@@ -18,6 +18,7 @@ module "eks" {
   private_subnets = module.vpc.private_subnets
   cluster_name   = "${var.project_name}-eks"
   instance_types = var.instance_types
+  project_name   = var.project_name
 }
 
 module "security" {
