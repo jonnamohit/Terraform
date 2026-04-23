@@ -8,9 +8,12 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
-- name: Checkout Code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Setup Terraform
@@ -18,9 +21,12 @@ jobs:
         with:
           terraform_version: 1.14.9
 
-      # -----------------------------
-      # Terraform Steps
-      # -----------------------------
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: GitHubActionsRole
+          aws-region: ap-south-2
+
       - name: Terraform Init
         run: terraform init
         working-directory: env/dev
@@ -29,28 +35,27 @@ jobs:
         run: terraform validate
         working-directory: env/dev
 
-      - name: Terraform Apply
-        run: terraform apply -auto-approve
+      - name: Terraform Plan
+        run: terraform plan -var-file=terraform.tfvars
         working-directory: env/dev
 
-      # -----------------------------
-      # Configure kubectl
-      # -----------------------------
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main'
+        run: terraform apply -auto-approve -var-file=terraform.tfvars
+        working-directory: env/dev
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --region ap-south-2 --name demo-eks
 
-      # -----------------------------
-      # Deploy Application
-      # -----------------------------
       - name: Deploy to Kubernetes
         run: |
           kubectl apply -f app/deployment.yaml
           kubectl apply -f app/service.yaml
 
-      # -----------------------------
-      # Verify Deployment
-      # -----------------------------
-      - name: Verify
+      - name: Verify Deployment
         run: |
-          kubectl get pods
-          kubectl get svc
+          kubectl get pods -n default
+          kubectl get svc -n default
