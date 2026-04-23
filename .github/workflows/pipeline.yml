@@ -1,0 +1,51 @@
+name: EKS DevOps Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted   
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      # -----------------------------
+      # Terraform Steps
+      # -----------------------------
+      - name: Terraform Init
+        run: terraform init
+        working-directory: env/dev
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: env/dev
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+        working-directory: env/dev
+
+      # -----------------------------
+      # Configure kubectl
+      # -----------------------------
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --region ap-south-2 --name demo-eks
+
+      # -----------------------------
+      # Deploy Application
+      # -----------------------------
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl apply -f app/deployment.yaml
+          kubectl apply -f app/service.yaml
+
+      # -----------------------------
+      # Verify Deployment
+      # -----------------------------
+      - name: Verify
+        run: |
+          kubectl get pods
+          kubectl get svc

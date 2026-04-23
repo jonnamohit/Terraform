@@ -1,0 +1,9 @@
+project_name = "demo"
+aws_region = "ap-south-2"
+vpc_cidr = "10.0.0.0/16"
+azs = ["ap-south-2a", "ap-south-2b"]
+public_subnets_cidr = ["10.0.1.0/24"]
+private_subnets_cidr = ["10.0.2.0/24", "10.0.3.0/24"]
+my_ip = "163.116.214.56/32"
+s3_bucket_name = "my-lb-logs-demo-12345"
+instance_types = ["t3.medium"]
