@@ -34,5 +34,4 @@ module "alb" {
   sg_id            = module.security.security_group_id
   private_subnets = module.vpc.private_subnets
   project_name     = var.project_name
-  s3_bucket_name   = module.s3.s3_bucket_name
 }
