@@ -27,14 +27,6 @@ jobs:
         with:
           terraform_version: 1.14.9
 
-      - name: Cache Terraform Plugins
-        uses: actions/cache@v3
-        with:
-          path: ~/.terraform.d/plugin-cache
-          key: ${{ runner.os }}-terraform-plugins-${{ hashFiles('.terraform.lock.hcl') }}
-          restore-keys: |
-            ${{ runner.os }}-terraform-plugins-
-
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -44,28 +36,41 @@ jobs:
 
       - name: Free Disk Space (Clean Runner)
         run: |
-          echo "🧹 Cleaning runner disk space..."
+          echo "🧹 Aggressive disk cleanup for GitHub Actions runner..."
           df -h
           echo "---"
-          # Remove docker images
-          docker image prune -af 2>/dev/null || true
-          # Remove docker build cache
-          docker builder prune -af 2>/dev/null || true
+          
+          # Stop docker to free space
+          sudo systemctl stop docker 2>/dev/null || true
+          
+          # Remove all docker data
+          sudo rm -rf /var/lib/docker/* 2>/dev/null || true
+          
           # Clean apt cache
           sudo apt-get clean 2>/dev/null || true
-          # Remove old terraform
-          rm -rf ~/.terraform.d/plugin-cache/* 2>/dev/null || true
-          rm -rf /tmp/* 2>/dev/null || true
-          # Create cache directory
-          mkdir -p ~/.terraform.d/plugin-cache
+          sudo apt-get autoclean 2>/dev/null || true
+          
+          # Remove unnecessary tools
+          sudo rm -rf /usr/share/dotnet 2>/dev/null || true
+          sudo rm -rf /usr/share/swift 2>/dev/null || true
+          sudo rm -rf /usr/local/lib/android 2>/dev/null || true
+          
+          # Clear logs
+          sudo rm -rf /var/log/* 2>/dev/null || true
+          
+          # Clear /tmp completely
+          sudo rm -rf /tmp/* 2>/dev/null || true
+          sudo rm -rf /var/tmp/* 2>/dev/null || true
+          
+          # Clear package cache
+          sudo apt-get clean 2>/dev/null || true
+          
           echo "✅ After cleanup:"
           df -h
 
       - name: Terraform Init
         run: terraform init
         working-directory: env/dev
-        env:
-          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
 
       - name: Terraform Validate
         run: terraform validate
