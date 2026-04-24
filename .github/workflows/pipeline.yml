@@ -27,6 +27,14 @@ jobs:
         with:
           terraform_version: 1.14.9
 
+      - name: Cache Terraform Plugins
+        uses: actions/cache@v3
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: ${{ runner.os }}-terraform-plugins-${{ hashFiles('.terraform.lock.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-terraform-plugins-
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -34,9 +42,30 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-2
 
+      - name: Free Disk Space (Clean Runner)
+        run: |
+          echo "🧹 Cleaning runner disk space..."
+          df -h
+          echo "---"
+          # Remove docker images
+          docker image prune -af 2>/dev/null || true
+          # Remove docker build cache
+          docker builder prune -af 2>/dev/null || true
+          # Clean apt cache
+          sudo apt-get clean 2>/dev/null || true
+          # Remove old terraform
+          rm -rf ~/.terraform.d/plugin-cache/* 2>/dev/null || true
+          rm -rf /tmp/* 2>/dev/null || true
+          # Create cache directory
+          mkdir -p ~/.terraform.d/plugin-cache
+          echo "✅ After cleanup:"
+          df -h
+
       - name: Terraform Init
         run: terraform init
         working-directory: env/dev
+        env:
+          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
 
       - name: Terraform Validate
         run: terraform validate
