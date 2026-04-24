@@ -57,11 +57,19 @@ jobs:
           
           # Delete ALB
           ALB_ARN=$(aws elbv2 describe-load-balancers --region $REGION --names "${PROJECT}-alb" --query 'LoadBalancers[0].LoadBalancerArn' --output text 2>/dev/null || echo "")
-          [ "$ALB_ARN" != "None" ] && [ -n "$ALB_ARN" ] && aws elbv2 delete-load-balancer --load-balancer-arn $ALB_ARN --region $REGION 2>/dev/null || true
+          if [ "$ALB_ARN" != "None" ] && [ -n "$ALB_ARN" ]; then
+            echo "Deleting ALB: $ALB_ARN"
+            aws elbv2 delete-load-balancer --load-balancer-arn $ALB_ARN --region $REGION
+            echo "Waiting 60s for ALB deletion..."
+            sleep 60
+          fi
           
           # Delete target group
           TG_ARN=$(aws elbv2 describe-target-groups --region $REGION --names "${PROJECT}-tg" --query 'TargetGroups[0].TargetGroupArn' --output text 2>/dev/null || echo "")
-          [ "$TG_ARN" != "None" ] && [ -n "$TG_ARN" ] && aws elbv2 delete-target-group --target-group-arn $TG_ARN --region $REGION 2>/dev/null || true
+          if [ "$TG_ARN" != "None" ] && [ -n "$TG_ARN" ]; then
+            echo "Deleting Target Group: $TG_ARN"
+            aws elbv2 delete-target-group --target-group-arn $TG_ARN --region $REGION
+          fi
           
           # Delete S3 bucket
           aws s3 rb s3://my-lb-logs-${PROJECT}-12345 --force 2>/dev/null || true
