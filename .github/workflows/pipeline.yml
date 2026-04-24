@@ -44,10 +44,4 @@ jobs:
         run: terraform apply -auto-approve
         working-directory: env/dev
 
-      - name: Update kubeconfig
-        run: aws eks update-kubeconfig --region ap-south-2 --name demo-eks
 
-      - name: Deploy App
-        run: |
-          kubectl apply -f app/deployment.yaml
-          kubectl apply -f app/service.yaml
