@@ -26,8 +26,11 @@ jobs:
 
       - name: Create Terraform State Bucket
         run: |
-          aws s3api head-bucket --bucket my-terraform-state-mohit-987654 --region ap-south-2 2>/dev/null || \
-          aws s3 mb s3://my-terraform-state-mohit-987654 --region ap-south-2 --create-bucket-configuration LocationConstraint=ap-south-2
+          aws s3api head-bucket --bucket my-terraform-state-mohit-987654 2>/dev/null || \
+          aws s3api create-bucket \
+            --bucket my-terraform-state-mohit-987654 \
+            --region ap-south-2 \
+            --create-bucket-configuration LocationConstraint=ap-south-2
 
       - name: Terraform Init
         run: terraform init
