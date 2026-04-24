@@ -13,12 +13,27 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v3
 
+      - name: Install Terraform
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unzip
+          TERRAFORM_VERSION="1.14.9"
+          wget -q "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+          unzip -q "terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+          sudo mv terraform /usr/local/bin/
+          rm "terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+          terraform version
+
       - name: Terraform Init
         run: terraform init
         working-directory: env/dev
 
       - name: Terraform Validate
         run: terraform validate
+        working-directory: env/dev
+
+      - name: Terraform Destroy Previous
+        run: terraform destroy -auto-approve || true
         working-directory: env/dev
 
       - name: Terraform Apply
