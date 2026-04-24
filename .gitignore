@@ -1,3 +1,25 @@
 *.tfstate
 *.tfstate.backup
 .terraform/
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+__pycache__/
+
+# OS
+.DS_Store
+*.log
