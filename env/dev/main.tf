@@ -30,8 +30,9 @@ module "security" {
 module "alb" {
   source = "../../modules/alb"
 
-  vpc_id        = module.vpc.vpc_id
-  sg_id         = module.security.security_group_id
+  vpc_id           = module.vpc.vpc_id
+  sg_id            = module.security.security_group_id
   private_subnets = module.vpc.private_subnets
-  project_name  = var.project_name
+  project_name     = var.project_name
+  s3_bucket_name   = module.s3.s3_bucket_name
 }
