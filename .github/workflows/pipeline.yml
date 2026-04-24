@@ -42,11 +42,17 @@ jobs:
         run: terraform validate
         working-directory: env/dev
 
+      - name: Terraform Destroy (Clean Old Infrastructure)
+        if: github.ref == 'refs/heads/main'
+        run: terraform destroy -auto-approve -var-file=terraform.tfvars
+        working-directory: env/dev
+        continue-on-error: true
+
       - name: Terraform Plan
         run: terraform plan -var-file=terraform.tfvars
         working-directory: env/dev
 
-      - name: Terraform Apply
+      - name: Terraform Apply (Fresh Infrastructure)
         if: github.ref == 'refs/heads/main'
         run: terraform apply -auto-approve -var-file=terraform.tfvars
         working-directory: env/dev
