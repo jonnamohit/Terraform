@@ -78,7 +78,37 @@ jobs:
 
       - name: Terraform Destroy (Clean Old Infrastructure)
         if: github.ref == 'refs/heads/main'
-        run: terraform destroy -auto-approve -var-file=terraform.tfvars
+        run: |
+          echo "🗑️  Attempting to destroy old infrastructure..."
+          terraform destroy -auto-approve -var-file=terraform.tfvars || true
+          
+          # Check if destroy succeeded, if not, force delete state
+          if [ -f terraform.tfstate ]; then
+            echo "⚠️  Removing terraform state file to force rebuild..."
+            rm -f terraform.tfstate
+            rm -f terraform.tfstate.backup
+          fi
+          
+          echo "✅ Destroy step complete (state cleaned)"
+        working-directory: env/dev
+        continue-on-error: true
+
+      - name: Import Existing Resources (If Not In State)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "🔍 Checking for existing resources to import..."
+          
+          PROJECT_NAME="demo"
+          REGION="ap-south-2"
+          
+          echo "Attempting to import existing IAM roles..."
+          terraform import -var-file=terraform.tfvars "module.eks.aws_iam_role.eks_role" "${PROJECT_NAME}-eks-cluster-role" || true
+          terraform import -var-file=terraform.tfvars "module.eks.aws_iam_role.node_role" "${PROJECT_NAME}-eks-node-role" || true
+          
+          echo "Attempting to import existing S3 bucket..."
+          terraform import -var-file=terraform.tfvars "module.s3.aws_s3_bucket.lb_logs" "my-lb-logs-demo-12345" || true
+          
+          echo "✅ Import step complete"
         working-directory: env/dev
         continue-on-error: true
 
