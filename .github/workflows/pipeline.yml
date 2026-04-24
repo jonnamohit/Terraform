@@ -10,139 +10,18 @@ jobs:
     runs-on: self-hosted
 
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_REGION: ap-south-2
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
 
-      - name: Install AWS CLI
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq unzip curl
-          curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip -q awscliv2.zip
-          sudo ./aws/install --update
-          rm -rf awscliv2.zip aws
-          aws --version
-
-      - name: Install Terraform
-        run: |
-          TERRAFORM_VERSION="1.14.9"
-          wget -q "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
-          unzip -q "terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
-          sudo mv terraform /usr/local/bin/
-          rm "terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
-          terraform version
-
-      - name: Pre-Cleanup AWS Resources
-        run: |
-          set -x
-          REGION="${AWS_REGION}"
-          PROJECT="demo"
-          
-          echo "=== Deleting EKS Node Groups ==="
-          NODE_GROUPS=$(aws eks list-nodegroups --cluster-name ${PROJECT}-eks --region $REGION --query 'nodegroups[*]' --output text || echo "")
-          for ng in $NODE_GROUPS; do
-            echo "Deleting node group: $ng"
-            aws eks delete-nodegroup --cluster-name ${PROJECT}-eks --nodegroup-name $ng --region $REGION || true
-            echo "Waiting for node group deletion..."
-            aws eks wait nodegroup-deleted --cluster-name ${PROJECT}-eks --nodegroup-name $ng --region $REGION || true
-          done
-          
-          echo "=== Deleting EKS Cluster ==="
-          aws eks delete-cluster --name ${PROJECT}-eks --region $REGION || true
-          
-          echo "=== Deleting IAM Roles ==="
-          aws iam detach-role-policy --role-name ${PROJECT}-eks-cluster-role --policy-arn arn:aws:iam::aws:policy/AmazonEKSClusterPolicy || true
-          aws iam delete-role --role-name ${PROJECT}-eks-cluster-role || true
-          
-          for policy in arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy; do
-            aws iam detach-role-policy --role-name ${PROJECT}-eks-node-role --policy-arn $policy || true
-          done
-          aws iam delete-role --role-name ${PROJECT}-eks-node-role || true
-          
-          echo "=== Deleting ALB ==="
-          ALB_ARN=$(aws elbv2 describe-load-balancers --region $REGION --names "${PROJECT}-alb" --query 'LoadBalancers[0].LoadBalancerArn' --output text || echo "")
-          echo "ALB ARN: $ALB_ARN"
-          if [ "$ALB_ARN" != "None" ] && [ -n "$ALB_ARN" ]; then
-            aws elbv2 delete-load-balancer --load-balancer-arn $ALB_ARN --region $REGION
-            echo "Waiting 60s for ALB deletion..."
-            sleep 60
-          fi
-          
-          echo "=== Deleting Target Group ==="
-          TG_ARN=$(aws elbv2 describe-target-groups --region $REGION --names "${PROJECT}-tg" --query 'TargetGroups[0].TargetGroupArn' --output text || echo "")
-          echo "TG ARN: $TG_ARN"
-          if [ "$TG_ARN" != "None" ] && [ -n "$TG_ARN" ]; then
-            aws elbv2 delete-target-group --target-group-arn $TG_ARN --region $REGION
-          fi
-          
-          echo "=== Deleting S3 Bucket ==="
-          aws s3 rm s3://my-lb-logs-${PROJECT}-12345 --recursive || true
-          aws s3 rb s3://my-lb-logs-${PROJECT}-12345 --force || true
-          
-          echo "=== Deleting Security Group ==="
-          SG_ID=$(aws ec2 describe-security-groups --region $REGION --filters "Name=group-name,Values=allow-my-ip" --query 'SecurityGroups[0].GroupId' --output text || echo "")
-          echo "SG ID: $SG_ID"
-          if [ "$SG_ID" != "None" ] && [ -n "$SG_ID" ]; then
-            aws ec2 delete-security-group --group-id $SG_ID --region $REGION || true
-          fi
-          
-          echo "=== Deleting VPC and dependencies ==="
-          VPC_ID=$(aws ec2 describe-vpcs --region $REGION --filters "Name=tag:Name,Values=${PROJECT}-vpc" --query 'Vpcs[0].VpcId' --output text || echo "")
-          echo "VPC ID: $VPC_ID"
-          if [ "$VPC_ID" != "None" ] && [ -n "$VPC_ID" ]; then
-            NAT_IDS=$(aws ec2 describe-nat-gateways --region $REGION --filter Name=vpc-id,Values=$VPC_ID --query 'NatGateways[?State!="deleted"].NatGatewayId' --output text || echo "")
-            echo "NAT IDs: $NAT_IDS"
-            for nat in $NAT_IDS; do
-              aws ec2 delete-nat-gateway --nat-gateway-id $nat --region $REGION || true
-            done
-            [ -n "$NAT_IDS" ] && sleep 30
-            
-            EIP_ALLOC_IDS=$(aws ec2 describe-addresses --region $REGION --query 'Addresses[*].AllocationId' --output text || echo "")
-            echo "EIP IDs: $EIP_ALLOC_IDS"
-            for eip in $EIP_ALLOC_IDS; do
-              [ -n "$eip" ] && aws ec2 release-address --allocation-id $eip --region $REGION || true
-            done
-            
-            IGW_IDS=$(aws ec2 describe-internet-gateways --region $REGION --filters "Name=attachment.vpc-id,Values=$VPC_ID" --query 'InternetGateways[*].InternetGatewayId' --output text || echo "")
-            echo "IGW IDs: $IGW_IDS"
-            for igw in $IGW_IDS; do
-              aws ec2 detach-internet-gateway --internet-gateway-id $igw --vpc-id $VPC_ID --region $REGION || true
-              aws ec2 delete-internet-gateway --internet-gateway-id $igw --region $REGION || true
-            done
-            
-            SUBNET_IDS=$(aws ec2 describe-subnets --region $REGION --filters "Name=vpc-id,Values=$VPC_ID" --query 'Subnets[*].SubnetId' --output text || echo "")
-            echo "Subnet IDs: $SUBNET_IDS"
-            for subnet in $SUBNET_IDS; do
-              aws ec2 delete-subnet --subnet-id $subnet --region $REGION || true
-            done
-            
-            RT_IDS=$(aws ec2 describe-route-tables --region $REGION --filters "Name=vpc-id,Values=$VPC_ID" --query 'RouteTables[?Associations[0].Main != \`true\`].RouteTableId' --output text || echo "")
-            echo "RT IDs: $RT_IDS"
-            for rt in $RT_IDS; do
-              aws ec2 delete-route-table --route-table-id $rt --region $REGION || true
-            done
-            
-            aws ec2 delete-vpc --vpc-id $VPC_ID --region $REGION || true
-          fi
-          
-          echo "=== Cleanup complete ==="
-
-      - name: Create Terraform State Bucket
-        run: |
-          aws s3api head-bucket --bucket my-terraform-state-demo-12345 --region ap-south-2 2>/dev/null || \
-            aws s3 mb s3://my-terraform-state-demo-12345 --region ap-south-2
-
       - name: Terraform Init
         run: terraform init
         working-directory: env/dev
 
-      - name: Terraform Validate
-        run: terraform validate
+      - name: Terraform Plan
+        run: terraform plan
         working-directory: env/dev
 
       - name: Terraform Apply
@@ -152,12 +31,7 @@ jobs:
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --region ap-south-2 --name demo-eks
 
-      - name: Deploy to Kubernetes
+      - name: Deploy App
         run: |
           kubectl apply -f app/deployment.yaml
           kubectl apply -f app/service.yaml
-
-      - name: Verify
-        run: |
-          kubectl get pods
-          kubectl get svc

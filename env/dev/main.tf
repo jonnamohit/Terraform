@@ -1,9 +1,8 @@
 terraform {
   backend "s3" {
-    bucket         = "my-terraform-state-demo-12345"
-    key            = "dev/terraform.tfstate"
-    region         = "ap-south-2"
-    use_lockfile   = true
+    bucket = "my-terraform-state-mohit-987654"
+    key    = "dev/terraform.tfstate"
+    region = "ap-south-2"
   }
 }
 
