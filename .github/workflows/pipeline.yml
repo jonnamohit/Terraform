@@ -124,6 +124,11 @@ jobs:
           
           echo "=== Cleanup complete ==="
 
+      - name: Create Terraform State Bucket
+        run: |
+          aws s3api head-bucket --bucket my-terraform-state-demo-12345 --region ap-south-2 2>/dev/null || \
+            aws s3 mb s3://my-terraform-state-demo-12345 --region ap-south-2
+
       - name: Terraform Init
         run: terraform init
         working-directory: env/dev
@@ -148,4 +153,3 @@ jobs:
         run: |
           kubectl get pods
           kubectl get svc
-
