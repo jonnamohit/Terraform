@@ -3,7 +3,7 @@ name: EKS DevOps Pipeline
 on:
   push:
     branches:
-      - main
+      - pipeline1
 
 jobs:
   deploy:
