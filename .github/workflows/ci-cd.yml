@@ -10,46 +10,51 @@ env:
   ECR_REPOSITORY: ${{ secrets.ECR_REPO_URI }}  # full e.g. 123456.dkr.ecr.us-west-2.amazonaws.com/app-new
   IMAGE_TAG: ${{ github.sha }}
   HELM_CHART_PATH: helm/app-new
+  AWS_REGION: us-east-1
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Backend tests
-      run: cd new_app/app/backend && npm ci && npm test
-    
-    - name: Frontend build
-      run: cd new_app/app/frontend && npm ci && npm run build
-    
+      - uses: actions/checkout@v4
+
+      - name: Backend tests
+        run: cd app/backend && npm ci && npm test
+
+      - name: Frontend build
+        run: cd app/frontend && npm ci && npm run build
+
   sonar-scan:
     needs: test
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    
-    - name: SonarCloud Scan
-      uses: SonarSource/sonarcloud-github-action@master
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
-    
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+
   quality-gate:
     needs: sonar-scan
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
-    - name: Quality Gate
-      run: |
-        # Wait for Quality Gate (simplified; use webhook for prod)
-        echo "Quality Gate passed (configure webhook for auto)"
-        sleep 30
-      env:
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Wait for SonarCloud Quality Gate
+        run: |
+          for i in $(seq 1 15); do
+            status=$(curl -s -u "${{ secrets.SONAR_TOKEN }}:" "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${{ secrets.SONAR_PROJECT_KEY }}" | python3 -c 'import sys, json; print(json.load(sys.stdin)["projectStatus"]["status"])')
+            echo "Quality gate status: $status"
+            if [ "$status" = "OK" ]; then exit 0; fi
+            if [ "$status" = "ERROR" ]; then exit 1; fi
+            sleep 20
+          done
+          echo "Timed out waiting for SonarCloud quality gate"
+          exit 1
 
   docker-build-scan:
     needs: quality-gate
@@ -60,42 +65,38 @@ jobs:
     outputs:
       image_uri: ${{ steps.build-push.outputs.image_uri }}
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Configure AWS OIDC
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-arn: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-        aws-region: ${{ vars.AWS_REGION || 'us-west-2' }}
-    
-    - name: ECR Login
-      id: login
-      uses: aws-actions/amazon-ecr-login@v2
-    
-    - name: Build & Push Docker
-      id: build-push
-      env:
-        REGISTRY: ${{ steps.login.outputs.registry }}
-        REPO: ${{ env.ECR_REPOSITORY }}
-      run: |
-        cd new_app
-        docker build -t $REGISTRY/$REPO:$IMAGE_TAG -t $REGISTRY/$REPO:latest .
-        docker push $REGISTRY/$REPO:$IMAGE_TAG
-        docker push $REGISTRY/$REPO:latest
-        echo "image_uri=$REGISTRY/$REPO:$IMAGE_TAG" >> $GITHUB_OUTPUT
-    
-    - name: Trivy Scan
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: ${{ steps.build-push.outputs.image_uri }}
-        format: sarif
-        output: trivy.sarif
-        severity: 'HIGH,CRITICAL'
-    
-    - name: Upload Trivy
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: trivy.sarif
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-arn: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: ECR Login
+        id: login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & Push Docker
+        id: build-push
+        run: |
+          docker build -t $ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REPOSITORY:latest .
+          docker push $ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REPOSITORY:latest
+          echo "image_uri=$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Trivy Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.build-push.outputs.image_uri }}
+          format: sarif
+          output: trivy.sarif
+          severity: 'HIGH,CRITICAL'
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif
 
   deploy-eks:
     needs: docker-build-scan
@@ -104,30 +105,32 @@ jobs:
       id-token: write
       contents: read
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: AWS Credentials OIDC
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-arn: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-        aws-region: ${{ vars.AWS_REGION || 'us-west-2' }}
-    
-    - name: Setup kubectl & Helm
-      run: |
-        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-        sudo install kubectl /usr/local/bin
-        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-    
-    - name: Connect to EKS
-      run: aws eks update-kubeconfig --region ${{ vars.AWS_REGION || 'us-west-2' }} --name ${{ secrets.EKS_CLUSTER_NAME }}
-    
-    - name: Helm Deploy
-      run: |
-        helm upgrade --install $APP_NAME $HELM_CHART_PATH \
-          --namespace $APP_NAME --create-namespace \
-          --set image.repository=${{ needs.docker-build-scan.outputs.image_uri }} \
-          --set ingress.hosts[0].host=${{ secrets.APP_HOSTNAME }} \
-          --wait --timeout 5m
+      - uses: actions/checkout@v4
+
+      - name: AWS Credentials OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-arn: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup kubectl & Helm
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          sudo install kubectl /usr/local/bin
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Connect to EKS
+        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ secrets.EKS_CLUSTER_NAME }}
+
+      - name: Helm Deploy
+        run: |
+          helm upgrade --install $APP_NAME $HELM_CHART_PATH \
+            --namespace $APP_NAME --create-namespace \
+            --set image.repository=${{ env.ECR_REPOSITORY }} \
+            --set image.tag=${{ env.IMAGE_TAG }} \
+            --set ingress.hosts[0].host=${{ secrets.APP_HOSTNAME }} \
+            --wait --timeout 5m
+
 </content>
 </xai:function_call name="create_file">
 

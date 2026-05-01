@@ -1,7 +1,6 @@
 apiVersion: v2
 name: app-new
-description: Helm chart for app_new full-stack app
+description: Full-stack professional app deployed to EKS via Helm
 type: application
 version: 0.1.0
-appVersion: "1.0"
-dependencies: []
+appVersion: "1.0.0"
