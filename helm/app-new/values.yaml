@@ -1,9 +1,9 @@
 replicaCount: 1
 
 image:
-  repository: REPOSITORY_URI
+  repository: 746552104971.dkr.ecr.ap-south-1.amazonaws.com/python-crud-app
   tag: latest
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 service:
   type: LoadBalancer
