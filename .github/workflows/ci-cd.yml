@@ -5,9 +5,6 @@ on:
     branches: [ pipeline2 ]
   workflow_dispatch:
 
-# ============================================
-# Environment Variables
-# ============================================
 env:
   APP_NAME: app-new
   ECR_REPOSITORY: ${{ secrets.ECR_REPO_URI }}
@@ -18,9 +15,6 @@ env:
   EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
 
 jobs:
-  # ============================================
-  # Step 1: Checkout
-  # ============================================
   checkout:
     runs-on: ubuntu-latest
     steps:
@@ -29,9 +23,6 @@ jobs:
         with:
           fetch-depth: 0
 
-  # ============================================
-  # Step 2: Set Variables
-  # ============================================
   set-variables:
     runs-on: ubuntu-latest
     needs: checkout
@@ -44,17 +35,7 @@ jobs:
         run: |
           echo "image_tag=${{ github.sha }}" >> $GITHUB_OUTPUT
           echo "short_sha=${GITHUB_SHA:0:8}" >> $GITHUB_OUTPUT
-          echo "::set-output name=image_tag::${{ github.sha }}"
-          echo "::set-output name=short_sha::${GITHUB_SHA:0:8}"
-          echo "✅ Variables set:"
-          echo "   - IMAGE_TAG: ${{ github.sha }}"
-          echo "   - SHORT_SHA: ${GITHUB_SHA:0:8}"
-          echo "   - APP_NAME: ${{ env.APP_NAME }}"
-          echo "   - AWS_REGION: ${{ env.AWS_REGION }}"
 
-  # ============================================
-  # Step 3: Install Dependencies
-  # ============================================
   install-dependencies:
     runs-on: ubuntu-latest
     needs: set-variables
@@ -73,35 +54,23 @@ jobs:
         run: |
           cd app/backend
           npm ci
-          echo "✅ Backend dependencies installed"
 
       - name: Install Frontend Dependencies
         run: |
           cd app/frontend
           npm ci
-          echo "✅ Frontend dependencies installed"
 
-      - name: Verify Installation
-        run: |
-          cd app/backend && npm list --depth=0
-          cd app/frontend && npm list --depth=0
-          echo "✅ All dependencies verified"
-
-# ============================================
-  # Step 4: SonarCloud Scan
-  # ============================================
   sonar-scan:
     runs-on: ubuntu-latest
     needs: install-dependencies
     steps:
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v2
+        with:
+          projectBaseDir: .
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-  # ============================================
-  # Step 5: Quality Gate Check
-  # ============================================
   quality-gate:
     runs-on: ubuntu-latest
     needs: sonar-scan
@@ -109,26 +78,20 @@ jobs:
     steps:
       - name: Wait for SonarCloud Quality Gate
         run: |
-          echo "⏳ Waiting for SonarCloud Quality Gate..."
+          echo "Waiting for SonarCloud Quality Gate..."
           for i in $(seq 1 15); do
             status=$(curl -s -u "${{ secrets.SONAR_TOKEN }}:" "https://sonarcloud.io/api/qualitygates/project_status?projectKey=jonnamohit_Terraform" | python3 -c 'import sys, json; print(json.load(sys.stdin)["projectStatus"]["status"])')
-            echo "Quality gate status: $status"
             if [ "$status" = "OK" ]; then 
-              echo "✅ Quality Gate passed!"
+              echo "Quality Gate passed!"
               exit 0
             fi
             if [ "$status" = "ERROR" ]; then 
-              echo "❌ Quality Gate failed!"
+              echo "Quality Gate failed!"
               exit 1
             fi
             sleep 20
           done
-          echo "❌ Timed out waiting for SonarCloud quality gate"
-          exit 1
 
-  # ============================================
-  # Step 6: Install Tools
-  # ============================================
   install-tools:
     runs-on: ubuntu-latest
     needs: quality-gate
@@ -140,28 +103,17 @@ jobs:
         run: |
           curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           sudo install kubectl /usr/local/bin/kubectl
-          kubectl version --client
-          echo "✅ kubectl installed"
 
       - name: Install Helm
         run: |
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-          helm version
-          echo "✅ Helm installed"
 
       - name: Install AWS CLI
         run: |
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
           unzip -q awscliv2.zip
           sudo ./aws/install
-          aws --version
-          echo "✅ AWS CLI installed"
 
-  # ============================================
-  # Step 7: Docker Build
-  # Step 8: Image Scan
-  # Step 9: Push to ECR
-  # ============================================
   docker-build-scan-push:
     runs-on: ubuntu-latest
     needs: install-tools
@@ -184,15 +136,20 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Validate ECR_REPOSITORY
+        run: |
+          if [ -z "${{ env.ECR_REPOSITORY }}" ]; then
+            echo "ERROR: ECR_REPOSITORY is empty. Please set the ECR_REPO_URI secret in GitHub."
+            exit 1
+          fi
+
       - name: Build Docker Image
         id: build
         run: |
           docker build \
-            --tag $ECR_REPOSITORY:$IMAGE_TAG \
-            --tag $ECR_REPOSITORY:latest \
+            --tag ${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} \
+            --tag ${{ env.ECR_REPOSITORY }}:latest \
             .
-          echo "✅ Docker image built"
-          docker images $ECR_REPOSITORY
 
       - name: Trivy Image Scan
         uses: aquasecurity/trivy-action@master
@@ -211,14 +168,10 @@ jobs:
       - name: Push to ECR
         id: build-push
         run: |
-          docker push $ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REPOSITORY:latest
-          echo "image_uri=$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
-          echo "✅ Image pushed to ECR: $ECR_REPOSITORY:$IMAGE_TAG"
+          docker push ${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          docker push ${{ env.ECR_REPOSITORY }}:latest
+          echo "image_uri=${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}" >> $GITHUB_OUTPUT
 
-  # ============================================
-  # Step 10: EKS Connect
-  # ============================================
   eks-connect:
     runs-on: ubuntu-latest
     needs: docker-build-scan-push
@@ -240,22 +193,16 @@ jobs:
           curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
-          kubectl version --client
 
       - name: Connect to EKS
         run: |
           aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER_NAME }}
-          kubectl config current-context
-          echo "✅ Connected to EKS cluster: ${{ env.EKS_CLUSTER_NAME }}"
 
       - name: Verify EKS Connection
         run: |
           kubectl get nodes
           kubectl get ns
 
-  # ============================================
-  # Step 11: Helm Deploy
-  # ============================================
   helm-deploy:
     runs-on: ubuntu-latest
     needs: eks-connect
@@ -277,7 +224,6 @@ jobs:
           curl -LO https://get.helm.sh/helm-v3.14.0-linux-amd64.tar.gz
           tar -zxf helm-v3.14.0-linux-amd64.tar.gz
           sudo mv linux-amd64/helm /usr/local/bin/helm
-          helm version
 
       - name: Connect to EKS
         run: |
@@ -285,27 +231,23 @@ jobs:
 
       - name: Helm Deploy to EKS
         run: |
-          helm upgrade --install $APP_NAME $HELM_CHART_PATH \
-            --namespace $HELM_NAMESPACE \
+          helm upgrade --install ${{ env.APP_NAME }} ${{ env.HELM_CHART_PATH }} \
+            --namespace ${{ env.HELM_NAMESPACE }} \
             --create-namespace \
             --set image.repository=${{ env.ECR_REPOSITORY }} \
-            --set image.tag=$IMAGE_TAG \
+            --set image.tag=${{ env.IMAGE_TAG }} \
             --set ingress.hosts[0].host=${{ secrets.APP_HOSTNAME }} \
             --wait \
             --timeout 5m \
             --atomic \
             --cleanup-on-fail
-          echo "✅ Helm deployment complete"
 
       - name: Verify Deployment
         run: |
-          kubectl get pods -n $HELM_NAMESPACE
-          kubectl get svc -n $HELM_NAMESPACE
-          kubectl get ingress -n $HELM_NAMESPACE
+          kubectl get pods -n ${{ env.HELM_NAMESPACE }}
+          kubectl get svc -n ${{ env.HELM_NAMESPACE }}
+          kubectl get ingress -n ${{ env.HELM_NAMESPACE }}
 
-  # ============================================
-  # Step 12: Smoke Test
-  # ============================================
   smoke-test:
     runs-on: ubuntu-latest
     needs: helm-deploy
@@ -331,67 +273,19 @@ jobs:
 
       - name: Wait for pods to be ready
         run: |
-          echo "⏳ Waiting for pods to be ready..."
           kubectl wait --for=condition=available \
-            deployment/$APP_NAME \
-            -n $HELM_NAMESPACE \
+            deployment/${{ env.APP_NAME }} \
+            -n ${{ env.HELM_NAMESPACE }} \
             --timeout=300s
-          echo "✅ All pods are ready"
 
       - name: Check Pod Health
         run: |
-          kubectl get pods -n $HELM_NAMESPACE -o wide
-          kubectl describe pods -n $HELM_NAMESPACE | grep -E "Status:|Conditions:"
+          kubectl get pods -n ${{ env.HELM_NAMESPACE }} -o wide
 
       - name: Check Service Endpoints
         run: |
-          kubectl get endpoints -n $HELM_NAMESPACE
+          kubectl get endpoints -n ${{ env.HELM_NAMESPACE }}
 
-      - name: Test Application Response
-        run: |
-          sleep 10
-          SERVICE=$(kubectl get svc $APP_NAME -n $HELM_NAMESPACE -o jsonpath='{.spec.type}')
-          if [ "$SERVICE" = "LoadBalancer" ]; then
-            EXTERNAL_IP=$(kubectl get svc $APP_NAME -n $HELM_NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-            echo "Testing LoadBalancer at: $EXTERNAL_IP"
-            curl -s -o /dev/null -w "%{http_code}" http://$EXTERNAL_IP || echo "Service might be starting..."
-          elif [ "$SERVICE" = "ClusterIP" ]; then
-            CLUSTER_IP=$(kubectl get svc $APP_NAME -n $HELM_NAMESPACE -o jsonpath='{.spec.clusterIP}')
-            echo "Testing ClusterIP at: $CLUSTER_IP"
-            kubectl run curl-test --image=curlimages/curl --restart=Never --rm -it -- \
-              curl -s -o /dev/null -w "%{http_code}" http://$CLUSTER_IP || echo "Service might be starting..."
-          fi
-
-      - name: Test Database Connection
-        run: |
-          kubectl exec -n $HELM_NAMESPACE \
-            deploy/$APP_NAME -- \
-            sh -c "ls -la /app/backend/data/ || echo 'Data directory accessed'"
-          echo "✅ Application is responding"
-
-      - name: Final Status Check
-        run: |
-          echo "=========================================="
-          echo "🎉 SMOKE TEST PASSED!"
-          echo "=========================================="
-          echo "Pipeline Status:"
-          echo "  ✅ Checkout"
-          echo "  ✅ Set Variables"
-          echo "  ✅ Install Dependencies"
-          echo "  ✅ SonarCloud Scan"
-          echo "  ✅ Quality Gate Check"
-          echo "  ✅ Install Tools"
-          echo "  ✅ Docker Build"
-          echo "  ✅ Image Scan"
-          echo "  ✅ Push to ECR"
-          echo "  ✅ EKS Connect"
-          echo "  ✅ Helm Deploy"
-          echo "  ✅ Smoke Test"
-          echo "=========================================="
-
-  # ============================================
-  # Failure Notification
-  # ============================================
   notify-failure:
     runs-on: ubuntu-latest
     needs: [sonar-scan, quality-gate, docker-build-scan-push, helm-deploy, smoke-test]
@@ -399,10 +293,5 @@ jobs:
     steps:
       - name: Notify on Failure
         run: |
-          echo "=========================================="
-          echo "❌ PIPELINE FAILED!"
-          echo "=========================================="
+          echo "Pipeline failed!"
           echo "Failed job: ${{ github.job }}"
-          echo "Reference: ${{ github.ref }}"
-          echo "=========================================="
-        shell: bash
