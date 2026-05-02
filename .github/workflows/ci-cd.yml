@@ -3,8 +3,6 @@ name: CI/CD Pipeline - ECR/EKS Deployment
 on:
   push:
     branches: [ pipeline2 ]
-  pull_request:
-    branches: [ pipeline2 ]
   workflow_dispatch:
 
 # ============================================
@@ -89,7 +87,7 @@ jobs:
           cd app/frontend && npm list --depth=0
           echo "✅ All dependencies verified"
 
-  # ============================================
+# ============================================
   # Step 4: SonarCloud Scan
   # ============================================
   sonar-scan:
@@ -97,11 +95,9 @@ jobs:
     needs: install-dependencies
     steps:
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+        uses: SonarSource/sonarcloud-github-action@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
 
   # ============================================
   # Step 5: Quality Gate Check
@@ -115,7 +111,7 @@ jobs:
         run: |
           echo "⏳ Waiting for SonarCloud Quality Gate..."
           for i in $(seq 1 15); do
-            status=$(curl -s -u "${{ secrets.SONAR_TOKEN }}:" "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${{ secrets.SONAR_PROJECT_KEY }}" | python3 -c 'import sys, json; print(json.load(sys.stdin)["projectStatus"]["status"])')
+            status=$(curl -s -u "${{ secrets.SONAR_TOKEN }}:" "https://sonarcloud.io/api/qualitygates/project_status?projectKey=jonnamohit_Terraform" | python3 -c 'import sys, json; print(json.load(sys.stdin)["projectStatus"]["status"])')
             echo "Quality gate status: $status"
             if [ "$status" = "OK" ]; then 
               echo "✅ Quality Gate passed!"
