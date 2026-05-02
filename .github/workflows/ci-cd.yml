@@ -7,7 +7,6 @@ on:
 
 env:
   APP_NAME: app-new
-  ECR_REPOSITORY: ${{ secrets.ECR_REPO_URI }}
   IMAGE_TAG: ${{ github.sha }}
   HELM_CHART_PATH: helm/app-new
   AWS_REGION: ap-south-2
@@ -25,11 +24,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: checkout
     outputs:
-      image_tag: ${{ steps.set-vars.outputs.image_tag }}
+      account_id: ${{ steps.set-vars.outputs.account_id }}
     steps:
       - name: Set Variables
         id: set-vars
-        run: echo "image_tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+        run: |
+          echo "account_id=${{ secrets.AWS_ACCOUNT_ID }}" >> $GITHUB_OUTPUT
 
   install-dependencies:
     runs-on: ubuntu-latest
@@ -80,52 +80,51 @@ jobs:
   docker-build-scan-push:
     runs-on: ubuntu-latest
     needs: install-tools
-    permissions:
-      id-token: write
-      contents: read
     steps:
       - uses: actions/checkout@v4
 
-      # ✅ Configure AWS (OIDC)
-      - uses: aws-actions/configure-aws-credentials@v4
+      # AWS LOGIN
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # ✅ Debug (IMPORTANT)
-      - name: Debug ECR
-        run: echo "ECR = $ECR_REPOSITORY"
+      # Get Account ID from AWS (IMPORTANT FIX)
+      - name: Get AWS Account ID
+        id: acct
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "account_id=$ACCOUNT_ID" >> $GITHUB_OUTPUT
 
-      # ✅ Login to ECR
+      # Login to ECR
       - uses: aws-actions/amazon-ecr-login@v2
 
-      # ✅ Build & Push
+      # Build & Push (FIXED PART)
       - name: Build and Push Docker Image
         run: |
-          docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REPOSITORY:$IMAGE_TAG
+          ACCOUNT_ID=${{ steps.acct.outputs.account_id }}
+          ECR_URL=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/python-crud-app
+
+          docker build -t python-crud-app:$IMAGE_TAG .
+          docker tag python-crud-app:$IMAGE_TAG $ECR_URL:$IMAGE_TAG
+          docker push $ECR_URL:$IMAGE_TAG
 
   eks-connect:
     runs-on: self-hosted
     needs: docker-build-scan-push
-    permissions:
-      id-token: write
-      contents: read
     steps:
       - uses: actions/checkout@v4
 
-      # ✅ Configure AWS (OIDC)
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # ✅ Debug Cluster
-      - name: Debug Cluster
-        run: echo "Cluster = $EKS_CLUSTER_NAME"
-
-      # ✅ Connect to EKS
-      - name: Update kubeconfig
+      - name: Connect to EKS
         run: |
           aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
           kubectl get nodes
@@ -133,31 +132,30 @@ jobs:
   helm-deploy:
     runs-on: self-hosted
     needs: eks-connect
-    permissions:
-      id-token: write
-      contents: read
     steps:
       - uses: actions/checkout@v4
 
-      # ✅ Configure AWS (OIDC)
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # ✅ Deploy with IMAGE (IMPORTANT FIX)
       - name: Helm Deploy
         run: |
+          ACCOUNT_ID=${{ needs.docker-build-scan-push.outputs.account_id }}
+
           aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
+
           helm upgrade --install $APP_NAME $HELM_CHART_PATH \
-            --set image.repository=$ECR_REPOSITORY \
+            --set image.repository=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/python-crud-app \
             --set image.tag=$IMAGE_TAG
 
   smoke-test:
     runs-on: ubuntu-latest
     needs: helm-deploy
     steps:
-      - uses: actions/checkout@v4
       - run: echo "Smoke Test Passed"
 
   notify-failure:
