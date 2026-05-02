@@ -3,6 +3,7 @@ name: CI/CD Pipeline - ECR/EKS Deployment
 on:
   push:
     branches: [ pipeline2 ]
+  workflow_dispatch:
 
 env:
   APP_NAME: app-new
