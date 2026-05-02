@@ -105,10 +105,10 @@ jobs:
       - name: Build and Push Docker Image
         run: |
           ACCOUNT_ID=${{ steps.acct.outputs.account_id }}
-          ECR_URL=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/python-crud-app
+          ECR_URL=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/demo-1
 
-          docker build -t python-crud-app:$IMAGE_TAG .
-          docker tag python-crud-app:$IMAGE_TAG $ECR_URL:$IMAGE_TAG
+          docker build -t demo-1:$IMAGE_TAG .
+          docker tag demo-1:$IMAGE_TAG $ECR_URL:$IMAGE_TAG
           docker push $ECR_URL:$IMAGE_TAG
 
   eks-connect:
@@ -149,7 +149,7 @@ jobs:
           aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
 
           helm upgrade --install $APP_NAME $HELM_CHART_PATH \
-            --set image.repository=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/python-crud-app \
+            --set image.repository=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/demo-1 \
             --set image.tag=$IMAGE_TAG
 
   smoke-test:
