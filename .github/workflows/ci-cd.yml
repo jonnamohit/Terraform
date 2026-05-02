@@ -5,14 +5,16 @@ on:
     branches: [ pipeline2 ]
   workflow_dispatch:
 
+
 env:
   APP_NAME: app-new
   ECR_REPOSITORY: ${{ secrets.ECR_REPO_URI }}
   IMAGE_TAG: ${{ github.sha }}
   HELM_CHART_PATH: helm/app-new
-AWS_REGION: ap-south-2
+  AWS_REGION: ap-south-2
   HELM_NAMESPACE: app-new
   EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+
 
 jobs:
   checkout:
