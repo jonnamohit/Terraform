@@ -58,18 +58,29 @@ jobs:
         run: |
           cd app/frontend
           npm ci
-
+  
   sonar-scan:
-    runs-on: ubuntu-latest
-    needs: install-dependencies
-    steps:
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@v2
-        with:
-          projectBaseDir: .
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  runs-on: ubuntu-latest
+  needs: install-dependencies
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
+    - name: Debug (confirm files)
+      run: ls -la
+
+    - name: SonarCloud Scan
+      uses: SonarSource/sonarcloud-github-action@v2
+      with:
+        args: >
+          -Dsonar.projectKey=jonnamohit_Terraform
+          -Dsonar.organization=jonnamohit
+          -Dsonar.sources=app
+          -Dsonar.projectBaseDir=.
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
   quality-gate:
     runs-on: ubuntu-latest
     needs: sonar-scan
