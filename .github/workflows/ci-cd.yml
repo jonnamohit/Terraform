@@ -147,7 +147,7 @@ jobs:
           ACCOUNT_ID=${{ needs.docker-build-scan-push.outputs.account_id }}
 
           aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
-
+          kubectl create namespace $HELM_NAMESPACE || true
           helm upgrade --install $APP_NAME $HELM_CHART_PATH \
             --set image.repository=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/demo-1 \
             --set image.tag=$IMAGE_TAG
